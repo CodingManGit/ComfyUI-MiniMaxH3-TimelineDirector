@@ -124,10 +124,11 @@ second_pass=copy.deepcopy(source)
 second_pass['timeline']['secondPass']=True
 second_pass['timeline']['secondPassModel']='minimax_h3_latent_upscaler_3d_bf16.safetensors'
 second_pass['timeline']['secondPassHighSteps']=5
+second_pass['timeline']['secondPassLowresScale']=0.4
 with patch.object(
     finite.folder_paths, 'get_filename_list',
     return_value=['minimax_h3_latent_upscaler_3d_bf16.safetensors'],
-):
+), patch.object(finite, 'checkpoint_is_h3_compatible', return_value=True):
     second_pass_result=finite.MiniMaxH3FiniteSegmentSampler.execute(
         model='model',clip='clip',vae='vae',audio_vae='audio_vae',finite_plan=second_pass,
         sampler='sampler',sigmas=torch.tensor([1.,.85,.7,.55,.4,.25,.15,.08,0.]),
@@ -137,12 +138,21 @@ second_pass_nodes=list(second_pass_result.expand.values())
 selflift=[n for n in second_pass_nodes if n['class_type']=='MiniMaxH3TimelineSelfLiftSampler']
 assert len(selflift)==3
 assert all(n['inputs']['transition_step']==3 for n in selflift)
+assert all(n['inputs']['lowres_scale']==0.4 for n in selflift)
 assert all(n['inputs']['upscaler_model']=='minimax_h3_latent_upscaler_3d_bf16.safetensors' for n in selflift)
 assert not [n for n in second_pass_nodes if n['class_type']=='SamplerCustomAdvanced']
 assert 'Two-stage sampling ran on every segment' in second_pass_result[3]
 assert '3 low-resolution step(s), 5 full-resolution step(s)' in second_pass_result[3]
-for invalid_high_steps in (0, 8, 9):
-    try:finite._selflift_settings(8,'minimax_h3_latent_upscaler_3d_bf16.safetensors',invalid_high_steps)
-    except ValueError as error:assert 'lower than the Basic Scheduler step count' in str(error) or invalid_high_steps==0
-    else:raise AssertionError(f'Invalid high-resolution step count accepted: {invalid_high_steps}')
+with patch.object(
+    finite.folder_paths, 'get_filename_list',
+    return_value=['minimax_h3_latent_upscaler_3d_bf16.safetensors'],
+), patch.object(finite, 'checkpoint_is_h3_compatible', return_value=True):
+    for invalid_high_steps in (0, 8, 9):
+        try:finite._selflift_settings(8,'minimax_h3_latent_upscaler_3d_bf16.safetensors',invalid_high_steps)
+        except ValueError as error:assert 'lower than the Basic Scheduler step count' in str(error) or invalid_high_steps==0
+        else:raise AssertionError(f'Invalid high-resolution step count accepted: {invalid_high_steps}')
+    for invalid_scale in (0.1, 1.2):
+        try:finite._selflift_settings(8,'minimax_h3_latent_upscaler_3d_bf16.safetensors',4,invalid_scale)
+        except ValueError as error:assert 'between 0.25 and 1.0' in str(error)
+        else:raise AssertionError(f'Invalid lowres_scale accepted: {invalid_scale}')
 print('timeline segment planning and execution graph: PASS')

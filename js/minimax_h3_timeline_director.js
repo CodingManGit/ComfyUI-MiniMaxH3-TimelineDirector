@@ -25,7 +25,7 @@ const TIMELINE_EN = {
   presetNotConnected: "Connect a Local Preset Loader to Import Preset first", presetLoaded: "Loaded preset: {name}", presetLoadFailed: "Preset load failed: {error}",
   refreshPresets: "Refresh local presets",
   selectionStart: "Selection start", referenceDuration: "Reference duration", zoom: "Zoom", fitAll: "Fit all", matchNearestGap: "Match nearest gap",
-  materialSegments: "Material segments", updateSegments: "Update segments", secondPass: "Two-stage sampling", secondPassModel: "Upscaler", secondPassHighSteps: "High-res steps", secondPassModelMissing: "No latent upscaler found", secondPassOn: "Two-stage sampling enabled for every segment", secondPassOff: "Two-stage sampling disabled", secondPassModelChanged: "Two-stage upscaler: {model}", secondPassHighStepsChanged: "High-res sampling steps: {steps}", timelineHelp: "Drag clips/playhead · Edge snapping · Selection duration = generation duration",
+  materialSegments: "Material segments", updateSegments: "Update segments", secondPass: "Two-stage sampling", secondPassModel: "Upscaler", secondPassHighSteps: "High-res steps", secondPassLowresScale: "Low-res scale", secondPassModelMissing: "No latent upscaler found", secondPassOn: "Two-stage sampling enabled for every segment", secondPassOff: "Two-stage sampling disabled", secondPassModelChanged: "Two-stage upscaler: {model}", secondPassHighStepsChanged: "High-res sampling steps: {steps}", secondPassLowresScaleChanged: "Low-res scale: {scale}", timelineHelp: "Drag clips/playhead · Edge snapping · Selection duration = generation duration",
   referenceVideo: "Reference video", videoAudio: "Video audio", off: "Off", on: "On", noClipSelected: "No clip selected",
   previewEmpty: "Move the red playhead over a video clip to preview that position", previewTitle: "Low-resolution monitor · up to 480×270 / 12 fps",
   noPreviewVideo: "No video is available for preview", playPreview: "▶ Play preview", pausePreview: "❚❚ Pause preview",
@@ -327,7 +327,7 @@ window.addEventListener("wheel",event=>{
 },{capture:true,passive:false});
 
 function emptyState() {
-  return { version: 10, fps: 24, globalPrompt:"", secondPass:false, secondPassModel:"", secondPassHighSteps:4, selection: { start: 0, duration: 5 }, videoAudioEnabled: true, videoClips: [], images: [], audios: [], segmentConfig:{count:1,activeIndex:0,mode:"timeline",segments:createWindows([],1,5*24)} };
+  return { version: 10, fps: 24, globalPrompt:"", secondPass:false, secondPassModel:"", secondPassHighSteps:4, secondPassLowresScale:0.5, selection: { start: 0, duration: 5 }, videoAudioEnabled: true, videoClips: [], images: [], audios: [], segmentConfig:{count:1,activeIndex:0,mode:"timeline",segments:createWindows([],1,5*24)} };
 }
 
 function normalizedAssetIds(values, validIds) {
@@ -346,6 +346,7 @@ function normalizeState(raw) {
   base.secondPass = raw.secondPass === true;
   base.secondPassModel = String(raw.secondPassModel || "");
   base.secondPassHighSteps = Math.max(1, Math.floor(num(raw.secondPassHighSteps, 4)));
+  base.secondPassLowresScale = clamp(Math.round(num(raw.secondPassLowresScale, 0.5) * 100) / 100, 0.25, 1.0);
   base.selection.start = Math.max(0, num(raw.selection?.start, 0));
   base.selection.duration = Math.max(5 / 24, num(raw.selection?.duration, 5));
   base.videoAudioEnabled = raw.videoAudioEnabled !== false;
@@ -593,6 +594,7 @@ class TimelineDirectorUI {
         ${this.isPlanner?`<label class="m3td-field"><input data-field="secondPass" type="checkbox"> ${esc(tr("secondPass"))}</label>`:""}
         ${this.isPlanner?`<label class="m3td-field">${esc(tr("secondPassModel"))} <select class="m3td-upscaler-select" data-field="secondPassModel">${upscalerOptions}</select></label>`:""}
         ${this.isPlanner?`<label class="m3td-field">${esc(tr("secondPassHighSteps"))} <input data-field="secondPassHighSteps" type="number" min="1" step="1" style="width:4.5em"></label>`:""}
+        ${this.isPlanner?`<label class="m3td-field">${esc(tr("secondPassLowresScale"))} <input data-field="secondPassLowresScale" type="number" min="0.25" max="1" step="0.05" style="width:4.5em"></label>`:""}
         <span class="m3td-help">${esc(tr("timelineHelp"))}</span>
       </div>
       <div class="m3td-timeline-shell">
@@ -675,6 +677,7 @@ class TimelineDirectorUI {
     const secondPassInput = this.root.querySelector('[data-field="secondPass"]');
     const secondPassModelInput = this.root.querySelector('[data-field="secondPassModel"]');
     const secondPassHighStepsInput = this.root.querySelector('[data-field="secondPassHighSteps"]');
+    const secondPassLowresScaleInput = this.root.querySelector('[data-field="secondPassLowresScale"]');
     this.root.addEventListener("input", event => {
       if(this.hasSegmentWindows()&&(event.target===startInput||event.target===durInput))return;
       if (event.target === startInput) {
@@ -699,6 +702,10 @@ class TimelineDirectorUI {
         this.state.secondPassHighSteps=Math.max(1,Math.floor(num(secondPassHighStepsInput.value,4)));
         this.sync(false);
         this.setStatus(tr("secondPassHighStepsChanged",{steps:this.state.secondPassHighSteps}));
+      } else if (secondPassLowresScaleInput && event.target === secondPassLowresScaleInput) {
+        this.state.secondPassLowresScale=clamp(Math.round(num(secondPassLowresScaleInput.value,0.5)*100)/100,0.25,1.0);
+        this.sync(false);
+        this.setStatus(tr("secondPassLowresScaleChanged",{scale:this.state.secondPassLowresScale}));
       }
     });
     startInput.onchange = () => {if(this.hasSegmentWindows())this.editActiveWindow("move",num(startInput.value)*24);else this.render();};
@@ -812,6 +819,11 @@ class TimelineDirectorUI {
     if(secondPassHighStepsInput){
       secondPassHighStepsInput.value=this.state.secondPassHighSteps;
       secondPassHighStepsInput.disabled=!this.state.secondPass;
+    }
+    const secondPassLowresScaleInput=this.root.querySelector('[data-field="secondPassLowresScale"]');
+    if(secondPassLowresScaleInput){
+      secondPassLowresScaleInput.value=this.state.secondPassLowresScale;
+      secondPassLowresScaleInput.disabled=!this.state.secondPass;
     }
     this.root.querySelector('[data-field="selectionDuration"]').value = this.state.selection.duration.toFixed(2);
     this.root.querySelector('[data-field="zoom"]').value = this.zoom;

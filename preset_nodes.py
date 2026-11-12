@@ -285,6 +285,7 @@ class MiniMaxH3PresetExporter(io.ComfyNode):
                 "sampling": {
                     "second_pass": bool(timeline.get("secondPass")),
                     "high_resolution_steps": max(1, int(timeline.get("secondPassHighSteps") or 4)),
+                    "lowres_scale": float(timeline.get("secondPassLowresScale") or 0.5),
                 },
                 "timeline": timeline,
             }

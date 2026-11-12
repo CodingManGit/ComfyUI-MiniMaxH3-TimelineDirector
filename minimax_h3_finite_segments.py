@@ -43,7 +43,10 @@ FiniteLoopState = io.Custom("MINIMAX_H3_FINITE_LOOP_STATE")
 
 
 def _selflift_settings(
-    step_count: int, requested_model: str = "", requested_high_steps=None,
+    step_count: int,
+    requested_model: str = "",
+    requested_high_steps=None,
+    requested_lowres_scale=None,
 ) -> dict:
     if step_count < 2:
         raise ValueError("Two-stage sampling requires at least two sampling steps")
@@ -62,6 +65,19 @@ def _selflift_settings(
             raise ValueError(
                 "High-resolution sampling steps must be at least 1 and lower than "
                 f"the Basic Scheduler step count ({step_count}); got {high_steps}"
+            )
+    if requested_lowres_scale is None:
+        lowres_scale = 0.5
+    else:
+        try:
+            lowres_scale = float(requested_lowres_scale)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"Two-stage low-resolution scale must be a number; got {requested_lowres_scale!r}"
+            ) from error
+        if not (0.25 <= lowres_scale <= 1.0):
+            raise ValueError(
+                f"Two-stage low-resolution scale must be between 0.25 and 1.0; got {lowres_scale}"
             )
     transition = step_count - high_steps
     models = list(folder_paths.get_filename_list("latent_upscale_models"))
@@ -87,7 +103,7 @@ def _selflift_settings(
             f"Select {compatible_models[0]}; LTX upscalers use a different architecture."
         )
     return {
-        "transition_step": transition, "lowres_scale": 0.5,
+        "transition_step": transition, "lowres_scale": lowres_scale,
         "rho": 0.0, "w_min": 0.5, "w_max": 1.0,
         "upscaler_model": selected,
     }
@@ -428,6 +444,7 @@ def _prepare_timeline_segments(source):
             "second_pass": bool(source["timeline"].get("secondPass")),
             "second_pass_model": str(source["timeline"].get("secondPassModel") or ""),
             "second_pass_high_steps": source["timeline"].get("secondPassHighSteps"),
+            "second_pass_lowres_scale": source["timeline"].get("secondPassLowresScale"),
         }
 
     if config.get("mode") != "timeline" or not 1 <= count <= 64:
@@ -483,6 +500,7 @@ def _prepare_timeline_segments(source):
         "second_pass": bool(source["timeline"].get("secondPass")),
         "second_pass_model": str(source["timeline"].get("secondPassModel") or ""),
         "second_pass_high_steps": source["timeline"].get("secondPassHighSteps"),
+        "second_pass_lowres_scale": source["timeline"].get("secondPassLowresScale"),
     }
 
 
@@ -1317,6 +1335,7 @@ class MiniMaxH3FiniteSegmentSampler(io.ComfyNode):
                 steps,
                 finite.get("second_pass_model", ""),
                 finite.get("second_pass_high_steps"),
+                finite.get("second_pass_lowres_scale"),
             )
             if second_pass else None
         )
